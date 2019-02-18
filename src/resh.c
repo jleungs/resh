@@ -7,6 +7,17 @@
 #define LASTARG(i) if ((i+1) >= argc) { die("No port specified\n"); }
 
 void
+rtrim(char *s)
+{
+	int len = strlen(s);
+
+	while (isspace(s[len  - 1]))
+		--len;
+	s[len] = '\n';
+	s[len + 1] = '\0';
+}
+
+void
 usage(char *argv0)
 {
 	die("usage: %s [-hv] [-l port] [-L port] [-i]\n\n"
