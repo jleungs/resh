@@ -1,17 +1,53 @@
-#include "arg.h"
+#include <ctype.h>
+
+#include "resh.h"
+#include "srv.h"
 
 /* Checks if the argument is the last given */
 #define LASTARG(i) if ((i+1) >= argc) { die("No port specified\n"); }
 
+void
+usage(char *argv0)
+{
+	die("usage: %s [-hv] [-l port] [-L port] [-i]\n\n"
+		"-l port\t\tListen port for no encryption. Default 80\n"
+		"-L port\t\tListen port for SSL encrypted traffic. Default 443\n"
+		"-i\t\tInteractive mode, use after the listening daemon is started\n"
+		, argv0);
+}
+
+unsigned
+grab_port(char *s)
+{
+	int i;
+	long p;
+
+	for (i = 0; s[i] != '\0'; i++) {
+		if (!isdigit(s[i]))
+			die("Specify a valid port\n");
+	}
+	p = atol(s);
+	if (p > 0xffff || p == 0)
+		die("Specify a valid port\n");
+	return p;
+}
+
+void
+die(const char *errstr, ...)
+{
+        va_list ap;
+
+        va_start(ap, errstr);
+        vfprintf(stderr, errstr, ap);
+        va_end(ap);
+        exit(1);
+}
+
 int
 main(int argc, char **argv)
 {
-	/* If no arguments */
-	if (argc < 2)
-		usage(argv[0]);
-
 	int i;
-	unsigned port, sslport;
+	unsigned port = 80, sslport = 443; /* Default ports */
 
 	for (i = 1; i < argc; i++) {
 		if (*argv[i] == '-') {
@@ -28,12 +64,15 @@ main(int argc, char **argv)
 				; /* Interact */
 			case 'v': /* version & help fall through */
 			case 'h':
-			default:
 				usage(argv[0]);
+				break;
+			default:
 				break;
 			}
 		}
 	}
-	printf("%u - %u\n", port,sslport);
-	return 0;
+	if (port < 1024 && sslport < 1024 && getuid() != 0)
+		die("%d or %d needs root privileges to listen on\n", port, sslport);
+
+	listener(port, sslport);
 }
