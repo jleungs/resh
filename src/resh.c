@@ -5,6 +5,38 @@
 
 /* Checks if the argument is the last given */
 #define LASTARG(i) if ((i+1) >= argc) { die("No port specified\n"); }
+/* clears screen, unix */
+#define CLEARSCREEN printf("\033[H\033[J")
+
+void
+prompt(Agents *pa)
+{
+	char cmd[2048];
+
+	while (1) {
+		printf("> ");
+		printf("%s\n", pa->ip);
+		if (fgets(cmd, sizeof(cmd), stdin))
+			printf("%s\n", cmd);
+		else
+			die("Failed to read command\n");
+	}
+}
+
+void
+banner(void)
+{
+	const char *b =
+"                  _     \n\
+                 | |    \n\
+  ____ _____  ___| |__  \n\
+ / ___) ___ |/___)  _ \\\n\
+| |   | ____|___ | | | |\n\
+|_|   |_____|___/|_| |_|\n\
+  REverse Shell Handler \n";
+	printf("%s", b);
+
+}
 
 void
 rtrim(char *s)
@@ -71,8 +103,6 @@ main(int argc, char **argv)
 				LASTARG(i);
 				sslport = grab_port(argv[++i]);
 				break;
-			case 'i':
-				; /* Interact */
 			case 'v': /* version & help fall through */
 			case 'h':
 				usage(argv[0]);
@@ -85,5 +115,19 @@ main(int argc, char **argv)
 	if (port < 1024 && sslport < 1024 && getuid() != 0)
 		die("%d or %d needs root privileges to listen on\n", port, sslport);
 
-	listener(port, sslport);
+	/* Setup struct for agents */
+	Agents agents[MAXSHELLS], *pagents;
+	pagents = &agents[0]; /* copy of struct */
+	pagents = malloc(sizeof(Agents));
+
+	if (!fork()) { /* child */
+		listener(port, sslport, pagents);
+	} else { /* parent */
+		CLEARSCREEN;
+		banner();
+
+		prompt(pagents);
+	}
+	free(pagents);
+	return 0;
 }
