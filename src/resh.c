@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <pthread.h>
 
 #include "resh.h"
 #include "srv.h"
@@ -9,17 +10,23 @@
 #define CLEARSCREEN printf("\033[H\033[J")
 
 void
-prompt(Agents *pa)
+prompt(Agents **pa)
 {
-	char cmd[2048];
+	int i;
+	char cmd[2048]; /* Zero out array, used by foor loop */
+	sleep(1); /* Sleep 1 sec */
 
 	while (1) {
 		printf("> ");
-		printf("%s\n", pa->ip);
-		if (fgets(cmd, sizeof(cmd), stdin))
-			printf("%s\n", cmd);
-		else
+		if (!fgets(cmd, sizeof(cmd), stdin))
 			die("Failed to read command\n");
+		for (i = 0; cmd[i] != '\0'; i++)
+			cmd[i] = tolower(cmd[i]);
+		if (!strcmp(cmd, "ls"))
+			for (i = 0; i < MAXSHELLS; i++)
+				if (pa[i]->alive)
+					;
+		printf("%d\t%s\n", pa[0]->alive,pa[0]->ip);
 	}
 }
 
@@ -33,9 +40,9 @@ banner(void)
  / ___) ___ |/___)  _ \\\n\
 | |   | ____|___ | | | |\n\
 |_|   |_____|___/|_| |_|\n\
-  REverse Shell Handler \n";
+  REverse Shell Handler \n\n";
+	CLEARSCREEN;
 	printf("%s", b);
-
 }
 
 void
@@ -91,6 +98,7 @@ main(int argc, char **argv)
 {
 	int i;
 	unsigned port = 80, sslport = 443; /* Default ports */
+	pthread_t listen_thread;
 
 	for (i = 1; i < argc; i++) {
 		if (*argv[i] == '-') {
@@ -116,18 +124,23 @@ main(int argc, char **argv)
 		die("%d or %d needs root privileges to listen on\n", port, sslport);
 
 	/* Setup struct for agents */
-	Agents agents[MAXSHELLS], *pagents;
-	pagents = &agents[0]; /* copy of struct */
-	pagents = malloc(sizeof(Agents));
-
-	if (!fork()) { /* child */
-		listener(port, sslport, pagents);
-	} else { /* parent */
-		CLEARSCREEN;
-		banner();
-
-		prompt(pagents);
+	Agents *agents[MAXSHELLS];
+	for (i = 0; i < MAXSHELLS; i++) {
+		agents[i] = malloc(sizeof(Agents));
+		agents[i]->ip = malloc(sizeof(char) * 16); /* max chars in ip */
 	}
-	free(pagents);
+
+	/* structure for listener() args, used by pthread_create */
+	struct listener_args args = { port, sslport, agents };
+	if (pthread_create(&listen_thread, NULL, listener, &args))
+		die("Failed to create listener thread\n");
+
+	banner();
+	prompt(agents);
+	/* free everything */
+	for (i = 0; i < MAXSHELLS; i++)
+		free(agents[i]);
+	if (pthread_join(listen_thread, NULL))
+		die("Error joining threads\n");
 	return 0;
 }

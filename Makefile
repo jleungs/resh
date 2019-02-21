@@ -1,4 +1,6 @@
-CFLAGS = -Wall -std=c99 -pedantic
+CC = cc
+CFLAGS =-Wall -std=c99 -pedantic
+LDFLAGS=-pthread
 
 resh: src/resh.c src/srv.c
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^

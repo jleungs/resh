@@ -44,14 +44,22 @@ interact(int fd, Agents *n)
 	die("Connection closed: %s\n", n->ip);
 }
 
-void
-listener(unsigned p0, unsigned p1, Agents *pa)
+void *
+listener(void *a)
 {
+	/* getting args in the right format */
+	struct listener_args *args = a;
+	int p0,p1;
+	Agents **pa;
+	p0 = args->p0;
+	p1 = args->p1;
+	pa = args->a;
+
 	int fd0, fd1, i = 0;
 	pid_t pid;
 	fd0 = setupsock(p0);
 	fd1 = setupsock(p1);
-	printf("Now listening on port %d & %d\n", p0, p1);
+	printf("Listening on port\nNoSSL:\t%d\nSSL:\t%d\n", p0, p1);
 
 	while(1) {
 		int sfd; /* session fd */
@@ -70,11 +78,13 @@ listener(unsigned p0, unsigned p1, Agents *pa)
 			close(fd0); /* If child, kill the server fp and handle shell recieved */
 			close(fd1);
 			 /* setup struct for agent */
-			pa->fp = sfd;
-			pa->ip = inet_ntoa(inc_adr.sin_addr);
-			pa->index = i;
-			pa->alive = 1;
+			pa[i]->fp = sfd;
+			pa[i]->ip = inet_ntoa(inc_adr.sin_addr);
+			pa[i]->index = i;
+			pa[i]->alive = 1;
 			pa++;
+			while (1)
+				;
 		} else { /* Parent */
 			i++; /* Next agent gets next index */
 			close(sfd); /* server doesn't need child fd */
