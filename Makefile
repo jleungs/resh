@@ -1,5 +1,5 @@
 CC = cc
-CFLAGS =-Wall -std=c99 -pedantic
+CFLAGS =-Wall -std=gnu99 -pedantic
 LDFLAGS=-pthread
 
 resh: src/resh.c src/srv.c

@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <pthread.h>
+#include <sys/mman.h>
 
 #include "resh.h"
 #include "srv.h"
@@ -10,23 +11,46 @@
 #define CLEARSCREEN printf("\033[H\033[J")
 
 void
-prompt(Agents **pa)
+prompt(int p0, int p1, Agents *pa)
 {
+	char cmd[30], *arg0, *arg1 = NULL;
 	int i;
-	char cmd[2048]; /* Zero out array, used by foor loop */
-	sleep(1); /* Sleep 1 sec */
+	int l = sizeof(cmd);
+
+	printf("Now listening on port\nNo SSL:\t%d\nSSL:\t%d\n", p0, p1);
 
 	while (1) {
-		printf("> ");
+		printf("resh> ");
 		if (!fgets(cmd, sizeof(cmd), stdin))
 			die("Failed to read command\n");
-		for (i = 0; cmd[i] != '\0'; i++)
+		for (i = 0; cmd[i] != '\0'; i++) {
 			cmd[i] = tolower(cmd[i]);
-		if (!strcmp(cmd, "ls"))
+			if (cmd[i] == '\n') /* strip newline */
+				cmd[i] = '\0';
+		}
+		arg0 = strtok(cmd, " ");
+		arg1 = strtok(NULL, " ");
+
+		if (!strncmp(arg0, "help", l) || !strncmp(arg0, "?", l)) {
+			printf("Commands\n--------\n"
+				   "help\tPrints this menu\n"
+				   "agents\tList active agents\n"
+				   "listeners\tList listener ports\n"
+				   "interact\tInteract with and agent\n");
+		} else if (!strncmp(arg0, "agents", l)) {
+			printf("Active Agents\n");
 			for (i = 0; i < MAXSHELLS; i++)
-				if (pa[i]->alive)
-					;
-		printf("%d\t%s\n", pa[0]->alive,pa[0]->ip);
+				if (pa[i].alive)
+					printf("Index: %d\tSourceIP: %s\n", pa[i].index, pa[i].ip);
+		} else if (!strncmp(arg0, "listeners", l)) {
+			printf("Listening on port\nNo SSL:\t%d\nSSL:\t%d\n\n", p0, p1);
+		} else if (!strncmp(arg0, "interact", l)) {
+			if (!arg1) {
+				printf("Specify an index, example:\n> interact 1\n\n");
+				continue;
+			}
+			printf("conttest\n");
+		}
 	}
 }
 
@@ -98,7 +122,7 @@ main(int argc, char **argv)
 {
 	int i;
 	unsigned port = 80, sslport = 443; /* Default ports */
-	pthread_t listen_thread;
+	pid_t pid;
 
 	for (i = 1; i < argc; i++) {
 		if (*argv[i] == '-') {
@@ -123,24 +147,19 @@ main(int argc, char **argv)
 	if (port < 1024 && sslport < 1024 && getuid() != 0)
 		die("%d or %d needs root privileges to listen on\n", port, sslport);
 
-	/* Setup struct for agents */
-	Agents *agents[MAXSHELLS];
-	for (i = 0; i < MAXSHELLS; i++) {
-		agents[i] = malloc(sizeof(Agents));
-		agents[i]->ip = malloc(sizeof(char) * 16); /* max chars in ip */
+	/* Setup struct for agents and mmap for shared memory between forks */
+	Agents agents[MAXSHELLS];
+	Agents *pagents = mmap(agents, sizeof(agents),
+						   PROT_READ|PROT_WRITE,
+						   MAP_SHARED|MAP_ANONYMOUS,
+						   -1, 0);
+	if ((pid = fork()) < 0 ) {
+		die("Failed to fork\n");
+	} else if (!pid){ /* child */
+		banner();
+		prompt(port, sslport, pagents);
+	} else { /* parent */
+		listener(port, sslport, pagents, pid);
 	}
-
-	/* structure for listener() args, used by pthread_create */
-	struct listener_args args = { port, sslport, agents };
-	if (pthread_create(&listen_thread, NULL, listener, &args))
-		die("Failed to create listener thread\n");
-
-	banner();
-	prompt(agents);
-	/* free everything */
-	for (i = 0; i < MAXSHELLS; i++)
-		free(agents[i]);
-	if (pthread_join(listen_thread, NULL))
-		die("Error joining threads\n");
 	return 0;
 }
