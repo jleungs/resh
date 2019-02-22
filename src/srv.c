@@ -2,6 +2,9 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <sys/select.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "resh.h"
 #include "srv.h"
@@ -46,27 +49,85 @@ interact(int fd, Agents *n)
 }
 
 void
-listener(unsigned p0, unsigned p1, Agents *pa, pid_t p)
+init_ssl(void)
+{
+	SSL_load_error_strings();
+	OpenSSL_add_ssl_algorithms();
+}
+
+SSL_CTX *
+ssl_ctx(char *c, char *k)
+{
+	const SSL_METHOD *m;
+	SSL_CTX *tmp;
+
+	m = SSLv23_server_method();
+	if (!(tmp = SSL_CTX_new(m)))
+		return 0;
+	SSL_CTX_set_ecdh_auto(ctx, 1);
+	if (SSL_CTX_use_certificate_file(tmp, c, SSL_FILETYPE_PEM) <= 0)
+		return 0;
+	if (SSL_CTX_use_PrivateKey_file(tmp, k, SSL_FILETYPE_PEM) <= 0 )
+		return 0;
+
+	return tmp;
+}
+
+void
+listener(unsigned p0, unsigned p1, Agents *pa, pid_t p, char *cert, char *key)
 {
 	int fd0, fd1, i = 0;
 	pid_t pid;
-	if (!(fd0 = setupsock(p0)) || !(fd1 = setupsock(p1))){
+	SSL_CTX *ctx = NULL;
+	fd_set selfd; /* select */
+
+	if (!(fd0 = setupsock(p0)) || !(fd1 = setupsock(p1))) {
 		kill(p, SIGKILL);
 		die("Failed to set up socket\n");
 	}
 
+	init_ssl();
+	if (!(ctx = ssl_ctx(cert, key))) {
+		kill(p, SIGKILL);
+		die("Failed to create SSL context, see -h\n");
+	}
+
 	while(1) {
-		int sfd; /* session fd */
+		FD_ZERO(&selfd);
+		FD_SET(fd0, &selfd); /* add sockets fds */
+		FD_SET(fd1, &selfd);
+		int afd; /* agent fd */
+		SSL *sslfd;
+
 		size_t inc_adr_len;
 		struct sockaddr_in inc_adr; /* incomming */
 
 		memset(&inc_adr, 0, sizeof(inc_adr));
 		inc_adr_len = sizeof(inc_adr);
 
-		if ((sfd = accept(fd0, (struct sockaddr*) &inc_adr, (socklen_t*) &inc_adr_len)) < 0) {
+		if (select(fd1+1, &selfd, 0, 0, 0) < 0) {
 			kill(p, SIGKILL);
-			die("Failed to accept connection\n");
+			die("Failed to select()\n");
 		}
+
+		if (FD_ISSET(fd0, &selfd)) { /* no ssl fd */
+			if ((afd = accept(fd0, (struct sockaddr*) &inc_adr, (socklen_t*) &inc_adr_len)) < 0)
+				fprintf(stderr, "Failed to accept connection\n");
+			else
+				pa[i].ssl = 0;
+
+		} else if (FD_ISSET(fd1, &selfd)) { /* ssl fd */
+			if ((afd = accept(fd1, (struct sockaddr*) &inc_adr, (socklen_t*) &inc_adr_len)) < 0)
+				fprintf(stderr, "Failed to accept connection\n");
+
+			sslfd = SSL_new(ctx);
+			SSL_set_fd(sslfd, fd1);
+			if (SSL_accept(sslfd) != 1)
+				fprintf(stderr, "Failed to accept SSL connection\n");
+			else
+				pa[i].ssl = 1;
+		}
+
 		printf("Connection from: %s\n", inet_ntoa(inc_adr.sin_addr));
 		if ((pid = fork()) < 0){
 			die("Failed to create child process\n");
@@ -76,7 +137,7 @@ listener(unsigned p0, unsigned p1, Agents *pa, pid_t p)
 			close(fd0); /* If child, kill the server fp and handle shell recieved */
 			close(fd1);
 			 /* setup struct for agent */
-			pa[i].fp = sfd;
+			pa[i].fp = afd;
 			strcpy(pa[i].ip, inet_ntoa(inc_adr.sin_addr));
 			pa[i].index = i;
 			pa[i].alive = 1;
@@ -85,7 +146,7 @@ listener(unsigned p0, unsigned p1, Agents *pa, pid_t p)
 			die("");
 		} else { /* Parent */
 			i++; /* Next agent gets next index */
-			close(sfd); /* server doesn't need child fd */
+			close(afd); /* server doesn't need child fd */
 		}
 	}
 }

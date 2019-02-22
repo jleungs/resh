@@ -11,7 +11,8 @@ typedef struct {
         char ip[16];
         int index;
         int alive;
+		int ssl;
 } Agents;
 
-void listener(unsigned, unsigned, Agents *, pid_t);
+void listener(unsigned, unsigned, Agents *, pid_t, char *, char *);
 #endif
