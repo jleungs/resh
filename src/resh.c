@@ -10,15 +10,33 @@
 /* clears screen, unix */
 #define CLEARSCREEN printf("\033[H\033[J")
 
+int
+igrab(char *in)
+{
+	int index, i;
+	for (i = 0; i < (int) strlen(in); i++)
+		if (!isdigit(in[i])) {
+			fprintf(stderr, "Not a valid index\n");
+			return -1;
+		}
+	index = atoi(in);
+	if (index > MAXSHELLS) {
+		fprintf(stderr, "Max index is %d\n", MAXSHELLS);
+		return -1;
+	}
+	return index;
+}
+
 void
 prompt(int p0, int p1, Agents *pa)
 {
 	char cmd[30], *arg0, *arg1 = NULL;
-	int i;
+	int i, index;
 	int l = sizeof(cmd);
 
 	printf("Now listening on port\nNo SSL:\t%d\nSSL:\t%d\n\nFor help: help or ?\n", p0, p1);
 
+	start:
 	while (1) {
 		printf("resh> ");
 		if (!fgets(cmd, sizeof(cmd), stdin))
@@ -40,31 +58,27 @@ prompt(int p0, int p1, Agents *pa)
 				   "\tlisteners\t\tList listener ports\n"
 				   "\tinteract\t\tInteract with and agent\n");
 		} else if (!strncmp(arg0, "agents", l)) {
-			printf("\tActive Agents\n");
+			printf("\tActive Agents\n\t-------------\n");
 			for (i = 0; i < MAXSHELLS; i++)
 				if (pa[i].alive)
 					printf("\tIndex: %d\tSourceIP: %s\n", pa[i].index, pa[i].ip);
 			printf("\n");
 		} else if (!strncmp(arg0, "listeners", l)) {
-			printf("\tListening on port\n\tNo SSL:\t%d\n\tSSL:\t%d\n\n", p0, p1);
+			printf("\tListening on port\n\t-----------------\n\t"
+				   "No SSL:\t%d\n\tSSL:\t%d\n\n", p0, p1);
 		} else if (!strncmp(arg0, "interact", l)) {
 			if (!arg1) {
 				fprintf(stderr, "Specify an index, example:\n\t> interact 1\n\n");
 			} else {
-				int index, i;
-				for (i = 0; i < (int) strlen(arg1); i++)
-					if (!isdigit(arg1[i])) {
-						fprintf(stderr, "Not a valid index\n");
-						break;
-					}
-				index = atoi(arg0);
-				if (index > MAXSHELLS) {
-					fprintf(stderr, "Max index is %d\n", MAXSHELLS);
-					break;
+				if ((index = igrab(arg1)) < 0) {
+					fprintf(stderr, "Index specified is not valid\n");
+					goto start;
 				}
 				if (!pa[index].alive) {
 					fprintf(stderr, "Agent not alive\n");
+					goto start;
 				}
+				interact(&pa[index]);
 			}
 		}
 	}

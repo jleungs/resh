@@ -12,7 +12,9 @@ typedef struct {
         int index;
         int alive;
 		int ssl;
+		pid_t pid;
 } Agents;
 
 void listener(unsigned, unsigned, Agents *, pid_t, char *, char *);
+void interact(Agents *);
 #endif
