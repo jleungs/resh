@@ -30,7 +30,7 @@ setupsock(int p)
 	return lfd;
 }
 
-void
+int
 interact(Agents *n)
 {
 	int clr; /* client recieved */
@@ -38,18 +38,24 @@ interact(Agents *n)
 	char sbuf[2048], rbuf[8192];
 
 	if (!n->ssl) {
-		while ((clr = recv(fd, rbuf, sizeof(rbuf), 0)) > 0) {
+		while (1) {
 			if (!(fgets(sbuf, sizeof(sbuf), stdin)))
-				die("Failed to read command\n");
+				fprintf(stderr, "Failed to read command\n");
+			if (!strlen(sbuf)) /* no input, continue loop */
+				continue;
 			if ((send(fd, sbuf, strlen(sbuf), 0)) < 0)
-				die("Failed to send data\n");
+				fprintf(stderr, "Failed to send data\n");
 			rtrim(rbuf);
 			printf("%.*s", (int) strlen(rbuf), rbuf);
+			if ((clr = recv(fd, rbuf, sizeof(rbuf), 0)) < 0) {
+				n->alive = 0;
+				kill(n->pid, SIGKILL);
+				fprintf(stderr, "Connection closed: %s\n", n->ip);
+				return -1;
+			}
 		}
-		n->alive = 0;
-		kill(n->pid, SIGKILL);
-		fprintf(stderr, "Connection closed: %s\n", n->ip);
 	}
+	return -1;
 }
 
 void
@@ -132,7 +138,7 @@ listener(unsigned p0, unsigned p1, Agents *pa, pid_t p, char *cert, char *key)
 				pa[i].ssl = 1;
 		}
 
-		printf("\nConnection from: %s", inet_ntoa(inc_adr.sin_addr));
+		printf("Connection from: %s\n", inet_ntoa(inc_adr.sin_addr));
 		if ((pid = fork()) < 0){
 			die("Failed to create child process\n");
 			kill(p, SIGKILL);

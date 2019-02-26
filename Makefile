@@ -1,6 +1,6 @@
 CC = cc
-CFLAGS =-Wall -std=gnu99 -pedantic
-LDFLAGS=-pthread -lssl -lcrypt
+CFLAGS =-Wall -std=c99 -pedantic
+LDFLAGS=-pthread -lssl -lcrypt -D_POSIX_C_SOURCE
 
 all: resh
 

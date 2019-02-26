@@ -1,2 +1,6 @@
 # resh
-Handling multiple reverse shells
+REverse Shell Handler
+
+# TODO
+[] Re-use shell index if not alive
+[] Tab function in shell

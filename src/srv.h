@@ -7,14 +7,14 @@
 
 /* To keep track on the agents/clients */
 typedef struct {
-        int fp;
-        char ip[16];
-        int index;
-        int alive;
-		int ssl;
-		pid_t pid;
+	int fp;
+	char ip[16];
+	int index;
+	pid_t pid;
+	unsigned alive	:	1;
+	unsigned ssl	:	1;
 } Agents;
 
 void listener(unsigned, unsigned, Agents *, pid_t, char *, char *);
-void interact(Agents *);
+int interact(Agents *);
 #endif

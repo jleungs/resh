@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <ctype.h>
 #include <pthread.h>
 #include <sys/mman.h>
@@ -78,7 +79,8 @@ prompt(int p0, int p1, Agents *pa)
 					fprintf(stderr, "Agent not alive\n");
 					goto start;
 				}
-				interact(&pa[index]);
+				while (interact(&pa[index]) < 0)
+					;
 			}
 		}
 	}
