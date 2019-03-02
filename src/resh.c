@@ -213,5 +213,8 @@ main(int argc, char **argv)
 	banner();
 	prompt(port, sslport, pagents);
 
+	for (i = 0; i < MAXSHELLS; i++)
+		free(pagents[i]);
+
 	return pthread_join(sthread, NULL);
 }
