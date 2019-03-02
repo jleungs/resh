@@ -1,7 +1,4 @@
-#define _GNU_SOURCE
-#include <ctype.h>
 #include <pthread.h>
-#include <sys/mman.h>
 
 #include "resh.h"
 #include "srv.h"
@@ -29,7 +26,7 @@ igrab(char *in)
 }
 
 void
-prompt(int p0, int p1, Agents *pa)
+prompt(int p0, int p1, Agents **pa)
 {
 	char cmd[30], *arg0, *arg1 = NULL;
 	int i, index;
@@ -53,35 +50,39 @@ prompt(int p0, int p1, Agents *pa)
 		arg1 = strtok(NULL, " ");
 
 		if (!strncmp(arg0, "help", l) || !strncmp(arg0, "?", l)) {
-			printf("\tCommands\n\t--------\n"
-				   "\thelp\t\tPrints this menu\n"
-				   "\tagents\t\tList active agents\n"
-				   "\tlisteners\t\tList listener ports\n"
-				   "\tinteract\t\tInteract with and agent\n");
+			printf("Commands\n--------\n"
+				   " help\t\tPrints this menu\n"
+				   " agents\t\tList active agents\n"
+				   " list\t\tList listener ports\n"
+				   " use\t\tInteract with an agent\n"
+				   " exit\t\tExits\n");
 		} else if (!strncmp(arg0, "agents", l)) {
-			printf("\tActive Agents\n\t-------------\n");
+			printf("Active Agents\n-------------\n");
 			for (i = 0; i < MAXSHELLS; i++)
-				if (pa[i].alive)
-					printf("\tIndex: %d\tSourceIP: %s\n", pa[i].index, pa[i].ip);
+				if (pa[i]->alive)
+					printf(" %d:\n ---\n SourceIP: %s\n SSL: %s\n", pa[i]->index, pa[i]->ip,
+						   pa[i]->ssl ? "Yes" : "No");
 			printf("\n");
-		} else if (!strncmp(arg0, "listeners", l)) {
-			printf("\tListening on port\n\t-----------------\n\t"
-				   "No SSL:\t%d\n\tSSL:\t%d\n\n", p0, p1);
-		} else if (!strncmp(arg0, "interact", l)) {
+		} else if (!strncmp(arg0, "list", l)) {
+			printf("Listening on port\n-----------------\n"
+				   "No SSL:\t%d\nSSL:\t%d\n\n", p0, p1);
+		} else if (!strncmp(arg0, "use", l)) {
 			if (!arg1) {
-				fprintf(stderr, "Specify an index, example:\n\t> interact 1\n\n");
+				fprintf(stderr, "Specify an index, example:\n > use 1\n\n");
 			} else {
 				if ((index = igrab(arg1)) < 0) {
 					fprintf(stderr, "Index specified is not valid\n");
 					goto start;
 				}
-				if (!pa[index].alive) {
+				if (!pa[index]->alive) {
 					fprintf(stderr, "Agent not alive\n");
 					goto start;
 				}
-				while (interact(&pa[index]) < 0)
-					;
+				while (pa[index]->alive)
+					interact(pa[index]);
 			}
+		} else if (!strncmp(arg0, "exit", l)) {
+			exit(0);
 		}
 	}
 }
@@ -125,7 +126,7 @@ usage(char *argv0)
 		, argv0, argv0);
 }
 
-unsigned
+unsigned short
 pgrab(char *s)
 {
 	int i;
@@ -166,9 +167,9 @@ int
 main(int argc, char **argv)
 {
 	int i;
-	unsigned port = 80, sslport = 443; /* Default ports */
+	unsigned short port = 80, sslport = 443; /* Default ports */
 	char *cert = "certs/cert.pem", *key = "certs/key.pem";
-	pid_t pid;
+	pthread_t sthread; /* server thread */
 
 	for (i = 1; i < argc; i++) {
 		if (*argv[i] == '-') {
@@ -199,19 +200,18 @@ main(int argc, char **argv)
 	if (port < 1024 && sslport < 1024 && getuid() != 0)
 		die("%d or %d needs root privileges to listen on\n", port, sslport);
 
-	/* Setup struct for agents and mmap for shared memory between forks */
-	Agents agents[MAXSHELLS];
-	Agents *pagents = mmap(agents, sizeof(agents),
-						   PROT_READ|PROT_WRITE,
-						   MAP_SHARED|MAP_ANONYMOUS,
-						   -1, 0);
-	if ((pid = fork()) < 0 ) {
-		die("Failed to fork\n");
-	} else if (!pid){ /* child */
-		banner();
-		prompt(port, sslport, pagents);
-	} else { /* parent */
-		listener(port, sslport, pagents, pid, cert, key);
-	}
-	return 0;
+	/* Setup struct for agents and malloc to share memory between threads */
+	Agents  *pagents[MAXSHELLS];
+	/* malloc for every index */
+	for (i = 0; i < MAXSHELLS; i++)
+		if (!(pagents[i] = malloc(sizeof(Agents))))
+			die("Failed to malloc\n");
+	/* listener args struct */
+	struct largs args = { port, sslport, pagents, cert, key };
+	if (pthread_create(&sthread, NULL, &listener, &args) != 0)
+		die("Failed to create thread\n");
+	banner();
+	prompt(port, sslport, pagents);
+
+	return pthread_join(sthread, NULL);
 }

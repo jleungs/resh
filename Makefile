@@ -1,4 +1,4 @@
-CC = cc
+CC =cc
 CFLAGS =-Wall -std=c99 -pedantic
 LDFLAGS=-pthread -lssl -lcrypt -D_POSIX_C_SOURCE
 

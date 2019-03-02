@@ -1,10 +1,10 @@
+#define _GNU_SOURCE
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <signal.h>
-#include <sys/select.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <poll.h>
 
 #include "resh.h"
 #include "srv.h"
@@ -21,7 +21,7 @@ setupsock(int p)
 	adr.sin_addr.s_addr = htonl(INADDR_ANY); /* 0.0.0.0 */
 	adr.sin_port = htons(p); /* port */
 
-	if ((lfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) /* IPv4, TCP, Default based on request */
+	if ((lfd = socket(AF_INET, SOCK_STREAM , 0)) < 0) /* IPv4, TCP, Default based on request */
 		return 0;
 	if (bind(lfd, (struct sockaddr*) &adr, sizeof(adr)) < 0)
 		return 0;
@@ -30,32 +30,52 @@ setupsock(int p)
 	return lfd;
 }
 
+void
+closecon(Agents *n)
+{
+	n->alive = 0;
+	close(n->fd);
+	printf("Connection closed: %s\n", n->ip);
+}
+
+void
+sighandle(int dummy)
+{
+	dummy = 0; /* do nothing if interupt */
+}
+
 int
 interact(Agents *n)
 {
-	int clr; /* client recieved */
-	int fd = n->fp;
-	char sbuf[2048], rbuf[8192];
+	int r;
+	int fd = n->fd;
+	char sbuf[2048], rbuf[1024];
+	struct sigaction sigact;
+	sigact.sa_handler = sighandle;
+	sigaction(SIGINT, &sigact, NULL); /* if interupt, exit to handler() */
 
 	if (!n->ssl) {
 		while (1) {
-			if (!(fgets(sbuf, sizeof(sbuf), stdin)))
-				fprintf(stderr, "Failed to read command\n");
-			if (!strlen(sbuf)) /* no input, continue loop */
-				continue;
-			if ((send(fd, sbuf, strlen(sbuf), 0)) < 0)
-				fprintf(stderr, "Failed to send data\n");
-			rtrim(rbuf);
-			printf("%.*s", (int) strlen(rbuf), rbuf);
-			if ((clr = recv(fd, rbuf, sizeof(rbuf), 0)) < 0) {
-				n->alive = 0;
-				kill(n->pid, SIGKILL);
-				fprintf(stderr, "Connection closed: %s\n", n->ip);
+			if (!(fgets(sbuf, sizeof(sbuf), stdin))) {
+				closecon(n);
 				return -1;
+			}
+			if (strlen(sbuf) == 1 && isspace(sbuf[0]))
+				continue; /* if not alpha num */
+			if (send(fd, sbuf, strlen(sbuf), 0) < 0) {
+				closecon(n);
+				return -1;
+			}
+			if ((r = recv(fd, rbuf, sizeof(rbuf), 0)) < 0) {
+				closecon(n);
+				return -1;
+			} else if (r) {
+				rtrim(rbuf);
+				printf("%.*s", r, rbuf);
 			}
 		}
 	}
-	return -1;
+	return 0;
 }
 
 void
@@ -83,29 +103,28 @@ ssl_ctx(char *c, char *k)
 	return tmp;
 }
 
-void
-listener(unsigned p0, unsigned p1, Agents *pa, pid_t p, char *cert, char *key)
+void *
+listener(void *args)
 {
 	int fd0, fd1, i = 0;
-	pid_t pid;
 	SSL_CTX *ctx = NULL;
-	fd_set selfd; /* select */
+	struct pollfd fds[2];
+	struct largs *a = args;
 
-	if (!(fd0 = setupsock(p0)) || !(fd1 = setupsock(p1))) {
-		kill(p, SIGKILL);
+	if (!(fd0 = setupsock(a->p0)) || !(fd1 = setupsock(a->p1)))
 		die("Failed to set up socket\n");
-	}
 
 	init_ssl();
-	if (!(ctx = ssl_ctx(cert, key))) {
-		kill(p, SIGKILL);
+	if (!(ctx = ssl_ctx(a->cert, a->key))) {
 		die("Failed to create SSL context, see -h\n");
 	}
 
+	fds[0].fd = fd0;
+	fds[0].events = POLLIN;
+	fds[1].fd = fd1;
+	fds[1].events = POLLIN;
+
 	while(1) {
-		FD_ZERO(&selfd);
-		FD_SET(fd0, &selfd); /* add sockets fds */
-		FD_SET(fd1, &selfd);
 		int afd; /* agent fd */
 		SSL *sslfd;
 
@@ -115,19 +134,18 @@ listener(unsigned p0, unsigned p1, Agents *pa, pid_t p, char *cert, char *key)
 		memset(&inc_adr, 0, sizeof(inc_adr));
 		inc_adr_len = sizeof(inc_adr);
 
-		if (select(fd1+1, &selfd, 0, 0, 0) < 0) {
-			kill(p, SIGKILL);
-			die("Failed to select()\n");
-		}
+		if (poll(fds, 2, -1) < 0)
+			die("Failed to poll\n");
 
-		if (FD_ISSET(fd0, &selfd)) { /* no ssl fd */
-			if ((afd = accept(fd0, (struct sockaddr*) &inc_adr, (socklen_t*) &inc_adr_len)) < 0)
+		if (fds[0].revents & POLLIN) {
+			if ((afd = accept(fd0, (struct sockaddr*) &inc_adr,
+							  (socklen_t*) &inc_adr_len)) < 0)
 				fprintf(stderr, "Failed to accept connection\n");
 			else
-				pa[i].ssl = 0;
-
-		} else if (FD_ISSET(fd1, &selfd)) { /* ssl fd */
-			if ((afd = accept(fd1, (struct sockaddr*) &inc_adr, (socklen_t*) &inc_adr_len)) < 0)
+				a->pa[i]->ssl = 0;
+		} else if (fds[1].revents & POLLIN) {
+			if ((afd = accept(fd1, (struct sockaddr*) &inc_adr,
+						      (socklen_t*) &inc_adr_len)) < 0)
 				fprintf(stderr, "Failed to accept connection\n");
 
 			sslfd = SSL_new(ctx);
@@ -135,29 +153,17 @@ listener(unsigned p0, unsigned p1, Agents *pa, pid_t p, char *cert, char *key)
 			if (SSL_accept(sslfd) != 1)
 				fprintf(stderr, "Failed to accept SSL connection\n");
 			else
-				pa[i].ssl = 1;
+				a->pa[i]->ssl = 1;
+		} else {
+			continue;
 		}
 
 		printf("Connection from: %s\n", inet_ntoa(inc_adr.sin_addr));
-		if ((pid = fork()) < 0){
-			die("Failed to create child process\n");
-			kill(p, SIGKILL);
-		}
-		else if (!pid) { /* Child */
-			close(fd0); /* If child, kill the server fp and handle shell recieved */
-			close(fd1);
-			 /* setup struct for agent */
-			pa[i].fp = afd;
-			strcpy(pa[i].ip, inet_ntoa(inc_adr.sin_addr));
-			pa[i].index = i;
-			pa[i].alive = 1;
-			while (pa[i].alive)
-				; /* Keep socket alive while alive */
-			die("");
-		} else { /* Parent */
-			pa[i].pid = afd;
-			close(afd); /* server doesn't need child fd */
-			i++; /* Next agent gets next index */
-		}
+
+		a->pa[i]->fd = afd;
+		strcpy(a->pa[i]->ip, inet_ntoa(inc_adr.sin_addr));
+		a->pa[i]->index = i;
+		a->pa[i]->alive = 1;
+		i++; /* Next agent gets next index */
 	}
 }
