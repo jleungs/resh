@@ -2,8 +2,6 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 #include <poll.h>
 
 #include "resh.h"
@@ -50,64 +48,71 @@ sighandle(int dummy)
 int
 interact(Agents *n)
 {
-	int r, pret;
+	int r, s, pret;
 	/*int fd = n->fd;*/
 	char sbuf[2048], rbuf[1024], c;
 	struct sigaction sigact;
-	sigact.sa_handler = sighandle;
-	sigaction(SIGINT, &sigact, NULL); /* if interupt, exit to handler() */
-	sigaction(SIGTSTP, &sigact, NULL); /* if ctrl-z, background to handler() */
-	clbg = 0;
-
 	struct pollfd pfd;
+	/* Handle CTRL-C and CTRL-Z*/
+	sigact.sa_handler = sighandle;
+	sigaction(SIGINT, &sigact, NULL);
+	sigaction(SIGTSTP, &sigact, NULL);
+	/* polling to recv data from socket descriptor */
 	pfd.fd = n->fd;
 	pfd.events = POLLIN;
+	/* reset client background if set earlier */
+	clbg = 0;
 
-	if (!n->ssl) {
-		while (!clbg) {
-			pret = poll(&pfd, 1, 100); /* poll with .01 sec timeout */
-			switch (pret) {
-			case -1:
-				fprintf(stderr, "Failed to poll agent socket\n");
+	while (!clbg) {
+		pret = poll(&pfd, 1, 100); /* poll with .01 sec timeout */
+		switch (pret) {
+		case -1:
+			fprintf(stderr, "Failed to poll agent socket\n");
+			closecon(n);
+			return -1;
+			break;
+		case 0:
+			if (fgets(sbuf, sizeof(sbuf), stdin) == NULL)
+				fprintf(stderr, "Failed to read command\n");
+			if (n->ssl)
+				s = SSL_write(n->sslfd, sbuf, strlen(sbuf));
+			else
+				s = send(pfd.fd, sbuf, strlen(sbuf), 0);
+			if (s <= 0) {
 				closecon(n);
 				return -1;
-				break;
-			case 0:
-				fgets(sbuf, sizeof(sbuf), stdin);
-				if (send(pfd.fd, sbuf, strlen(sbuf), 0) < 0) {
-					closecon(n);
-					return -1;
-				}
-				break;
-			default:
-				if ((r = recv(pfd.fd, rbuf, sizeof(rbuf), 0)) < 0) {
-					fprintf(stderr, "Failed to recv\n");
-					closecon(n);
-					return -1;
-				} else if (!r) { /* agent disconnected */
-					closecon(n);
-					return -1;
-				}
-				rtrim(rbuf);
-				printf("%.*s", r, rbuf);
-				break;
 			}
-		}
-		printf("\nDo you want to background? (Y/n): ");
-		if ((c = getchar()) == EOF)
-			fprintf(stderr, "Failed to read char\n");
-		switch (c) {
-		case 'n':
-		case 'N':
-			closecon(n);
-			return 0;
 			break;
 		default:
-			return 0;
+			if (n->ssl)
+				r = SSL_read(n->sslfd, rbuf, sizeof(rbuf));
+			else
+				r = recv(pfd.fd, rbuf, sizeof(rbuf), 0);
+			if (r <= 0) { /* agent disconnected or error */
+				closecon(n);
+				return -1;
+			}
+			rtrim(rbuf);
+			printf("%.*s", r, rbuf);
 			break;
 		}
 	}
-	return 0;
+	printf("\nDo you want to background? (Y/n): ");
+	c = getchar();
+	switch (c) {
+	case EOF:
+		fprintf(stderr, "Failed to read char\n");
+		return 0;
+		break;
+	case 'n':
+	case 'N':
+		closecon(n);
+		return 0;
+		break;
+	default:
+		return 0;
+		break;
+	}
 }
 
 void
@@ -142,7 +147,6 @@ listener(void *args)
 	SSL_CTX *ctx = NULL;
 	struct pollfd fds[2];
 	struct largs *a = args;
-	struct timeval sto = { 1, 0 }; /* socket timeout { sec, microsec } */
 
 	if (!(fd0 = setupsock(a->p0)) || !(fd1 = setupsock(a->p1)))
 		die("Failed to set up socket\n");
@@ -182,18 +186,19 @@ listener(void *args)
 				fprintf(stderr, "Failed to accept connection\n");
 
 			sslfd = SSL_new(ctx);
-			SSL_set_fd(sslfd, fd1);
+			SSL_set_fd(sslfd, afd);
 			if (SSL_accept(sslfd) != 1)
 				fprintf(stderr, "Failed to accept SSL connection\n");
-			else
+			else {
 				a->pa[i]->ssl = 1;
+				a->pa[i]->sslfd = sslfd;
+			}
 		} else {
 			continue;
 		}
 
 		printf("Connection from: %s\n", inet_ntoa(inc_adr.sin_addr));
 
-		setsockopt(afd, SOL_SOCKET, SO_RCVTIMEO, (const char*) &sto, sizeof(sto));
 		a->pa[i]->fd = afd;
 		strcpy(a->pa[i]->ip, inet_ntoa(inc_adr.sin_addr));
 		a->pa[i]->index = i;
