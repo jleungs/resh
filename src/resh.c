@@ -78,8 +78,8 @@ prompt(int p0, int p1, Agents **pa)
 					fprintf(stderr, "Agent not alive\n");
 					goto start;
 				}
-				while (pa[index]->alive)
-					interact(pa[index]);
+				while (interact(pa[index]) > 0)
+					;
 			}
 		} else if (!strncmp(arg0, "exit", l)) {
 			exit(0);
@@ -212,9 +212,6 @@ main(int argc, char **argv)
 		die("Failed to create thread\n");
 	banner();
 	prompt(port, sslport, pagents);
-
-	for (i = 0; i < MAXSHELLS; i++)
-		free(pagents[i]);
 
 	return pthread_join(sthread, NULL);
 }

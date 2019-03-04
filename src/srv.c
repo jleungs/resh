@@ -9,6 +9,9 @@
 #include "resh.h"
 #include "srv.h"
 
+/* client background */
+static volatile int clbg;
+
 int
 setupsock(int p)
 {
@@ -41,38 +44,67 @@ closecon(Agents *n)
 void
 sighandle(int dummy)
 {
-	dummy = 0; /* do nothing if interupt */
+	clbg = 1;
 }
 
 int
 interact(Agents *n)
 {
-	int r;
-	int fd = n->fd;
-	char sbuf[2048], rbuf[1024];
+	int r, pret;
+	/*int fd = n->fd;*/
+	char sbuf[2048], rbuf[1024], c;
 	struct sigaction sigact;
 	sigact.sa_handler = sighandle;
 	sigaction(SIGINT, &sigact, NULL); /* if interupt, exit to handler() */
+	sigaction(SIGTSTP, &sigact, NULL); /* if ctrl-z, background to handler() */
+	clbg = 0;
+
+	struct pollfd pfd;
+	pfd.fd = n->fd;
+	pfd.events = POLLIN;
 
 	if (!n->ssl) {
-		while (1) {
-			if (!(fgets(sbuf, sizeof(sbuf), stdin))) {
+		while (!clbg) {
+			pret = poll(&pfd, 1, 100); /* poll with .01 sec timeout */
+			switch (pret) {
+			case -1:
+				fprintf(stderr, "Failed to poll agent socket\n");
 				closecon(n);
 				return -1;
-			}
-			if (strlen(sbuf) == 1 && isspace(sbuf[0]))
-				continue; /* if not alpha num */
-			if (send(fd, sbuf, strlen(sbuf), 0) < 0) {
-				closecon(n);
-				return -1;
-			}
-			if ((r = recv(fd, rbuf, sizeof(rbuf), 0)) < 0) {
-				closecon(n);
-				return -1;
-			} else if (r) {
+				break;
+			case 0:
+				fgets(sbuf, sizeof(sbuf), stdin);
+				if (send(pfd.fd, sbuf, strlen(sbuf), 0) < 0) {
+					closecon(n);
+					return -1;
+				}
+				break;
+			default:
+				if ((r = recv(pfd.fd, rbuf, sizeof(rbuf), 0)) < 0) {
+					fprintf(stderr, "Failed to recv\n");
+					closecon(n);
+					return -1;
+				} else if (!r) { /* agent disconnected */
+					closecon(n);
+					return -1;
+				}
 				rtrim(rbuf);
 				printf("%.*s", r, rbuf);
+				break;
 			}
+		}
+		printf("\nDo you want to background? (Y/n): ");
+		if ((c = getchar()) == EOF)
+			fprintf(stderr, "Failed to read char\n");
+		switch (c) {
+		case 'n':
+		case 'N':
+			closecon(n);
+			return 0;
+			break;
+		default:
+			return 0;
+			break;
 		}
 	}
 	return 0;
@@ -110,6 +142,7 @@ listener(void *args)
 	SSL_CTX *ctx = NULL;
 	struct pollfd fds[2];
 	struct largs *a = args;
+	struct timeval sto = { 1, 0 }; /* socket timeout { sec, microsec } */
 
 	if (!(fd0 = setupsock(a->p0)) || !(fd1 = setupsock(a->p1)))
 		die("Failed to set up socket\n");
@@ -160,6 +193,7 @@ listener(void *args)
 
 		printf("Connection from: %s\n", inet_ntoa(inc_adr.sin_addr));
 
+		setsockopt(afd, SOL_SOCKET, SO_RCVTIMEO, (const char*) &sto, sizeof(sto));
 		a->pa[i]->fd = afd;
 		strcpy(a->pa[i]->ip, inet_ntoa(inc_adr.sin_addr));
 		a->pa[i]->index = i;
