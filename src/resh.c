@@ -168,7 +168,6 @@ usage(char *argv0)
 	die("usage: %s [-hv] [-l port] [-L port] [-i] [-c cert] [-k key]\n\n"
 		"-l port\t\tListen port for no encryption. Default 80\n"
 		"-L port\t\tListen port for SSL encrypted traffic. Default 443\n"
-		"-i\t\tInteractive mode, use after the listening daemon is started\n"
 		"-k\t\tSSL private key to use. Default ./certs/srv.key\n"
 		"-c\t\tSSL cert to use. Default ./certs/srv.pem\n"
 		"\nExample:\n\t%s -c certs/srv.pem -k certs/srv.key\n"
