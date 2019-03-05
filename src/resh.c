@@ -1,4 +1,6 @@
 #include <pthread.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 #include "resh.h"
 #include "srv.h"
@@ -7,6 +9,36 @@
 #define LASTARG(i) if ((i+1) >= argc) { die("No port specified\n"); }
 /* clears screen, unix */
 #define CLEARSCREEN printf("\033[H\033[J")
+
+char *
+commandgen(const char *text, int state)
+{
+    static int list_index, len;
+    char *name;
+	char *commands[] = {
+		"help", "?", "agents",
+		"list", "use", "kill",
+		"exit", NULL
+	};
+
+    if (!state) {
+        list_index = 0;
+        len = strlen(text);
+    }
+
+    while ((name = commands[list_index++])) {
+        if (strncmp(name, text, len) == 0)
+            return strdup(name);
+    }
+    return NULL;
+}
+
+char **
+commandcomp(const char *text, int start, int end)
+{
+    rl_attempted_completion_over = 1;
+    return rl_completion_matches(text, commandgen);
+}
 
 int
 alivechk(Agents **p, char *arg0, char *arg1)
@@ -37,16 +69,15 @@ alivechk(Agents **p, char *arg0, char *arg1)
 void
 prompt(int p0, int p1, Agents **pa)
 {
-	char cmd[30], *arg0, *arg1 = NULL;
+	char *cmd, *arg0, *arg1 = NULL;
 	int i, index;
 	int l = sizeof(cmd);
 
 	printf("Now listening on port\nNo SSL:\t%d\nSSL:\t%d\n\nFor help: help or ?\n", p0, p1);
-
+	/* https://thoughtbot.com/blog/tab-completion-in-gnu-readline */
+	rl_attempted_completion_function = commandcomp;
 	while (1) {
-		printf("resh> ");
-		if (!fgets(cmd, sizeof(cmd), stdin))
-			die("Failed to read command\n");
+		cmd = readline("resh> ");
 		for (i = 0; cmd[i] != '\0'; i++) {
 			cmd[i] = tolower(cmd[i]);
 			if (cmd[i] == '\n') /* strip newline */
@@ -54,6 +85,7 @@ prompt(int p0, int p1, Agents **pa)
 		}
 		if (!strlen(cmd))
 			continue; /* if no input, continue loop */
+		add_history(cmd);
 		arg0 = strtok(cmd, " ");
 		arg1 = strtok(NULL, " ");
 
@@ -79,17 +111,20 @@ prompt(int p0, int p1, Agents **pa)
 			if (!arg1) {
 				fprintf(stderr, "Specify an index, example:\n > %s 1\n\n", arg0);
 			} else {
-				if ((index = alivechk(pa, arg0, arg1)) < 0)
+				if ((index = alivechk(pa, arg0, arg1)) < 0) {
+					free(cmd);
 					continue;
-				while (interact(pa[index]) > 0)
-					;
+				}
+				interact(pa[index]);
 			}
 		} else if (!strncmp(arg0, "kill", l)) {
 			if (!arg1) {
 				fprintf(stderr, "Specify an index, example:\n > %s 1\n\n", arg0);
 			} else {
-				if ((index = alivechk(pa, arg0, arg1)) < 0)
+				if ((index = alivechk(pa, arg0, arg1)) < 0) {
+					free(cmd);
 					continue;
+				}
 				closecon(pa[index]);
 			}
 		} else if (!strncmp(arg0, "exit", l)) {
@@ -97,6 +132,7 @@ prompt(int p0, int p1, Agents **pa)
 		} else {
 			fprintf(stderr, "Unknown command\n");
 		}
+		free(cmd);
 	}
 }
 
