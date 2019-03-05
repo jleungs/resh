@@ -48,8 +48,7 @@ sighandle(int dummy)
 int
 interact(Agents *n)
 {
-	int r, s, pret;
-	/*int fd = n->fd;*/
+	int r, s;
 	char sbuf[2048], rbuf[1024], c;
 	struct sigaction sigact;
 	struct pollfd pfd;
@@ -64,8 +63,8 @@ interact(Agents *n)
 	clbg = 0;
 
 	while (!clbg) {
-		pret = poll(&pfd, 1, 100); /* poll with .01 sec timeout */
-		switch (pret) {
+		printf("> ");
+		switch (poll(&pfd, 1, 100)) { /* poll with .01 sec timeout */
 		case -1:
 			fprintf(stderr, "Failed to poll agent socket\n");
 			closecon(n);
@@ -84,6 +83,7 @@ interact(Agents *n)
 			}
 			break;
 		default:
+			read:
 			if (n->ssl)
 				r = SSL_read(n->sslfd, rbuf, sizeof(rbuf));
 			else
@@ -94,6 +94,8 @@ interact(Agents *n)
 			}
 			rtrim(rbuf);
 			printf("%.*s", r, rbuf);
+			if (n->ssl && SSL_has_pending(n->sslfd)) /* pending bytes to read */
+				goto read;
 			break;
 		}
 	}
