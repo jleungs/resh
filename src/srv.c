@@ -143,7 +143,7 @@ ssl_ctx(char *c, char *k)
 void *
 listener(void *args)
 {
-	int fd0, fd1, i = 0;
+	int fd0, fd1, i;
 	SSL_CTX *ctx = NULL;
 	struct pollfd fds[2];
 	struct largs *a = args;
@@ -170,6 +170,11 @@ listener(void *args)
 
 		memset(&inc_adr, 0, sizeof(inc_adr));
 		inc_adr_len = sizeof(inc_adr);
+		/* Get first free index */
+		for (i = 0; i < MAXSHELLS; i++) {
+			if(!a->pa[i]->alive)
+				break;
+		}
 
 		if (poll(fds, 2, -1) < 0)
 			die("Failed to poll\n");
@@ -197,12 +202,11 @@ listener(void *args)
 			continue;
 		}
 
-		printf("Connection from: %s\n", inet_ntoa(inc_adr.sin_addr));
+		printf("Connection from: %s\tindex: %d\n", inet_ntoa(inc_adr.sin_addr), i);
 
 		a->pa[i]->fd = afd;
 		strcpy(a->pa[i]->ip, inet_ntoa(inc_adr.sin_addr));
 		a->pa[i]->index = i;
 		a->pa[i]->alive = 1;
-		i++; /* Next agent gets next index */
 	}
 }

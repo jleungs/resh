@@ -32,5 +32,5 @@ Example:
         ./resh -c certs/srv.pem -k certs/srv.key
 ```
 ### TODO
-- [ ] Re-use shell index if not alive
+- [x] Re-use shell index if not alive
 - [x] Tab function in shell
