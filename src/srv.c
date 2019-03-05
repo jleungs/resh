@@ -63,7 +63,6 @@ interact(Agents *n)
 	clbg = 0;
 
 	while (!clbg) {
-		printf("> ");
 		switch (poll(&pfd, 1, 100)) { /* poll with .01 sec timeout */
 		case -1:
 			fprintf(stderr, "Failed to poll agent socket\n");

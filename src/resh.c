@@ -9,17 +9,26 @@
 #define CLEARSCREEN printf("\033[H\033[J")
 
 int
-igrab(char *in)
+alivechk(Agents **p, char *arg0, char *arg1)
 {
 	int index, i;
-	for (i = 0; i < (int) strlen(in); i++)
-		if (!isdigit(in[i])) {
+
+	if (!arg1) {
+		fprintf(stderr, "Specify an index, example:\n > %s 1\n\n", arg0);
+		return -1;
+	}
+	for (i = 0; i < (int) strlen(arg1); i++)
+		if (!isdigit(arg1[i])) {
 			fprintf(stderr, "Not a valid index\n");
 			return -1;
 		}
-	index = atoi(in);
+	index = atoi(arg1);
 	if (index > MAXSHELLS) {
 		fprintf(stderr, "Max index is %d\n", MAXSHELLS);
+		return -1;
+	}
+	if (!p[index]->alive) {
+		fprintf(stderr, "Agent not alive\n");
 		return -1;
 	}
 	return index;
@@ -34,7 +43,6 @@ prompt(int p0, int p1, Agents **pa)
 
 	printf("Now listening on port\nNo SSL:\t%d\nSSL:\t%d\n\nFor help: help or ?\n", p0, p1);
 
-	start:
 	while (1) {
 		printf("resh> ");
 		if (!fgets(cmd, sizeof(cmd), stdin))
@@ -55,6 +63,7 @@ prompt(int p0, int p1, Agents **pa)
 				   " agents\t\tList active agents\n"
 				   " list\t\tList listener ports\n"
 				   " use\t\tInteract with an agent\n"
+				   " kill\t\tKill an agent\n"
 				   " exit\t\tExits\n");
 		} else if (!strncmp(arg0, "agents", l)) {
 			printf("Active Agents\n-------------\n");
@@ -68,21 +77,25 @@ prompt(int p0, int p1, Agents **pa)
 				   "No SSL:\t%d\nSSL:\t%d\n\n", p0, p1);
 		} else if (!strncmp(arg0, "use", l)) {
 			if (!arg1) {
-				fprintf(stderr, "Specify an index, example:\n > use 1\n\n");
+				fprintf(stderr, "Specify an index, example:\n > %s 1\n\n", arg0);
 			} else {
-				if ((index = igrab(arg1)) < 0) {
-					fprintf(stderr, "Index specified is not valid\n");
-					goto start;
-				}
-				if (!pa[index]->alive) {
-					fprintf(stderr, "Agent not alive\n");
-					goto start;
-				}
+				if ((index = alivechk(pa, arg0, arg1)) < 0)
+					continue;
 				while (interact(pa[index]) > 0)
 					;
 			}
+		} else if (!strncmp(arg0, "kill", l)) {
+			if (!arg1) {
+				fprintf(stderr, "Specify an index, example:\n > %s 1\n\n", arg0);
+			} else {
+				if ((index = alivechk(pa, arg0, arg1)) < 0)
+					continue;
+				closecon(pa[index]);
+			}
 		} else if (!strncmp(arg0, "exit", l)) {
 			exit(0);
+		} else {
+			fprintf(stderr, "Unknown command\n");
 		}
 	}
 }

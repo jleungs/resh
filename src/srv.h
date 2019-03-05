@@ -30,4 +30,5 @@ struct largs {
 //void *listener(unsigned, unsigned, Agents *, char *, char *);
 void *listener(void *);
 int interact(Agents *);
+void closecon(Agents *);
 #endif
