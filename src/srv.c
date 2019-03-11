@@ -53,6 +53,8 @@ interact(Agents *n)
 	struct pollfd pfd;
 	/* Handle CTRL-C and CTRL-Z*/
 	sigact.sa_handler = sighandle;
+	sigact.sa_flags = 0;
+	sigemptyset(&sigact.sa_mask);
 	sigaction(SIGINT, &sigact, NULL);
 	sigaction(SIGTSTP, &sigact, NULL);
 	/* polling to recv data from socket descriptor */

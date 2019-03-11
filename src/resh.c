@@ -55,7 +55,7 @@ alivechk(Agents **p, char *arg0, char *arg1)
 			return -1;
 		}
 	index = atoi(arg1);
-	if (index > MAXSHELLS) {
+	if (index >= MAXSHELLS) {
 		fprintf(stderr, "Max index is %d\n", MAXSHELLS);
 		return -1;
 	}
@@ -156,7 +156,7 @@ rtrim(char *s)
 {
 	int len = strlen(s);
 
-	while (isspace(s[len  - 1]))
+	while (isspace(s[len]))
 		--len;
 	s[len] = '\n';
 	s[len + 1] = '\0';
