@@ -56,7 +56,7 @@ alivechk(Agents **p, char *arg0, char *arg1)
 		}
 	index = atoi(arg1);
 	if (index >= MAXSHELLS) {
-		fprintf(stderr, "Max index is %d\n", MAXSHELLS);
+		fprintf(stderr, "Max index is %d\n", (MAXSHELLS-1));
 		return -1;
 	}
 	if (!p[index]->alive) {
