@@ -50,7 +50,7 @@ interact(Agents *n)
 	int r, s;
 	char sbuf[2048], rbuf[1024], c;
 	struct sigaction sigact;
-	struct pollfd pfd;
+	struct pollfd pfd[2];
 	/* Handle CTRL-C and CTRL-Z*/
 	sigact.sa_handler = sighandle;
 	sigact.sa_flags = 0;
@@ -58,45 +58,44 @@ interact(Agents *n)
 	sigaction(SIGINT, &sigact, NULL);
 	sigaction(SIGTSTP, &sigact, NULL);
 	/* polling to recv data from socket descriptor */
-	pfd.fd = n->fd;
-	pfd.events = POLLIN;
+	pfd[0].fd = n->fd;
+	pfd[0].events = POLLIN;
+	pfd[1].fd = STDIN_FILENO;
+	pfd[1].events = POLLIN;
 	/* reset client background if set earlier */
 	clbg = 0;
 
 	while (!clbg) {
-		switch (poll(&pfd, 1, 100)) { /* poll with .01 sec timeout */
-		case -1:
-			fprintf(stderr, "Failed to poll agent socket\n");
+		if (poll(pfd, 2, 100) < 0) { /* poll with .01 sec timeout */
+			fprintf(stderr, "Failed to poll\n");
 			closecon(n);
 			return -1;
-			break;
-		case 0:
-			if (fgets(sbuf, sizeof(sbuf), stdin) == NULL)
-				fprintf(stderr, "Failed to read command\n");
-			if (n->ssl)
-				s = SSL_write(n->sslfd, sbuf, strlen(sbuf));
-			else
-				s = send(pfd.fd, sbuf, strlen(sbuf), 0);
-			if (s <= 0) {
-				closecon(n);
-				return -1;
-			}
-			break;
-		default:
+		}
+		if (pfd[0].revents & POLLIN) {
 			read:
 			if (n->ssl)
 				r = SSL_read(n->sslfd, rbuf, sizeof(rbuf));
 			else
-				r = recv(pfd.fd, rbuf, sizeof(rbuf), 0);
+				r = recv(pfd[0].fd, rbuf, sizeof(rbuf), 0);
 			if (r <= 0) { /* agent disconnected or error */
 				closecon(n);
 				return -1;
 			}
 			rtrim(rbuf);
 			printf("%.*s", r, rbuf);
+		} else if (pfd[1].revents & POLLIN) {
 			if (n->ssl && SSL_has_pending(n->sslfd)) /* pending bytes to read */
 				goto read;
-			break;
+			if (fgets(sbuf, sizeof(sbuf), stdin) == NULL)
+				fprintf(stderr, "Failed to read command\n");
+			if (n->ssl)
+				s = SSL_write(n->sslfd, sbuf, strlen(sbuf));
+			else
+				s = send(pfd[0].fd, sbuf, strlen(sbuf), 0);
+			if (s <= 0) {
+				closecon(n);
+				return -1;
+			}
 		}
 	}
 	printf("\nDo you want to background? (Y/n): ");
