@@ -66,11 +66,8 @@ interact(Agents *n)
 	clbg = 0;
 
 	while (!clbg) {
-		if (poll(pfd, 2, 100) < 0) { /* poll with .01 sec timeout */
-			fprintf(stderr, "Failed to poll\n");
-			closecon(n);
-			return -1;
-		}
+		poll(pfd, 2, 100); /* poll with .01 sec timeout */
+
 		if (pfd[0].revents & POLLIN) {
 			read:
 			if (n->ssl)
@@ -83,9 +80,9 @@ interact(Agents *n)
 			}
 			rtrim(rbuf);
 			printf("%.*s", r, rbuf);
-		} else if (pfd[1].revents & POLLIN) {
 			if (n->ssl && SSL_has_pending(n->sslfd)) /* pending bytes to read */
 				goto read;
+		} else if (pfd[1].revents & POLLIN) {
 			if (fgets(sbuf, sizeof(sbuf), stdin) == NULL)
 				fprintf(stderr, "Failed to read command\n");
 			if (n->ssl)
