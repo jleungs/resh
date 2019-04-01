@@ -1,6 +1,6 @@
 # resh
 ### REverse Shell Handler
-A simple and minimalistic post-exploitation tool to handle and interact with reverse shells. The server listens on two ports, default 80 and 443. One for normal non-encrypted and one for SSL encrypted shells. This is to facilitate penetration tests, red teaming exercises or CTFs and handle multiple reverse shells.
+A simple and minimalistic post-exploitation tool to handle and interact with reverse shells. The server listens on two ports, default 80 and 443. The server handles SSL reverse shells as well. This is to facilitate penetration tests, red teaming exercises or CTFs.
 
 ### Installing
 #### Dependencies
