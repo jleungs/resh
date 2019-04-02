@@ -66,7 +66,7 @@ interact(Agents *n)
 	clbg = 0;
 
 	while (!clbg) {
-		poll(pfd, 2, 100); /* poll with .01 sec timeout */
+		poll(pfd, 2, 500); /* poll with .5 sec timeout */
 
 		if (pfd[0].revents & POLLIN) {
 			read:
